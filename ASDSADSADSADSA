@@ -40,7 +40,7 @@ instantKill = false, instantKillTarget = "Ice Parts", debugMode = true
 }
 
 local function LogDebug(module, message)
-if state.debugMode then print(string.format("[🌌 CepheusX-Galaxy] [%s] -> %s", string.upper(module), message)) end
+if state.debugMode then print(string.format("[🌌 CepheusXNinjaTycoon] [%s] -> %s", string.upper(module), message)) end
 end
 
 local function getAvailableConfigs()
@@ -357,7 +357,7 @@ end)
 
 -- Main UI Window Generation
 local Window = WindUI:CreateWindow({
-Title = "CepheusX Galaxy Engine",
+Title = "CepheusXNinjaTycoon",
 Author = "By OOFSUPERGUY",
 Icon = "solar:star-fall-minimalistic-bold",
 Theme = "Dark",
@@ -378,7 +378,7 @@ end,
 },
 })
 
-Window:Tag({ Title = "GALAXY COSMOS ACTIVE", Color = Color3.fromHex("#00E5FF"), Border = true })
+Window:Tag({ Title = "Update Nigger", Color = Color3.fromHex("#00E5FF"), Border = true })
 
 local AutoTab = Window:Tab({ Title = "Tycoon", Icon = "solar:city-bold" })
 local FarmTab = Window:Tab({ Title = "Farming", Icon = "solar:leaf-bold" })
