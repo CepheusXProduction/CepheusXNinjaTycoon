@@ -1,0 +1,897 @@
+repeat task.wait() until game:IsLoaded()
+
+local cloneref = (cloneref or clonereference or function(instance) return instance end)
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local RunService = cloneref(game:GetService("RunService"))
+local Players = cloneref(game:GetService("Players"))
+local Workspace = cloneref(game:GetService("Workspace"))
+local Lighting = cloneref(game:GetService("Lighting"))
+local HttpService = cloneref(game:GetService("HttpService"))
+local TeleportService = cloneref(game:GetService("TeleportService"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local success, WindUI = pcall(function()
+return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+end)
+
+if not success or not WindUI then
+warn("[OP HUB] FATAL: WindUI failed to load.")
+return
+end
+
+-- Config Multi-Profile Management Architecture
+local folderName = "CepheusX_Configs"
+if makefolder and isfolder and not isfolder(folderName) then
+makefolder(folderName)
+end
+
+local globalConfigName = "CepheusX_Global.json"
+local selectedConfig = "Default"
+local autoloadConfig = ""
+
+local state = {
+autoClick = false, autoCollect = false, autoSteal = false, autoBuy = false, autoBuyDrops = false,
+autoQuiz = false, autoScrolls = false,
+espPlayers = false, espNames = false, espDistance = false,
+antiAfk = false, noRender = false, fullBright = false, noclipCam = false, freeCam = false,
+instantKill = false, instantKillTarget = "Ice Parts", debugMode = true
+}
+
+local function LogDebug(module, message)
+if state.debugMode then print(string.format("[🌌 CepheusX-Galaxy] [%s] -> %s", string.upper(module), message)) end
+end
+
+local function getAvailableConfigs()
+local list = {"Default"}
+if listfiles and isfolder and isfolder(folderName) then
+local files = listfiles(folderName)
+for _, file in ipairs(files) do
+local name = file:match("([^/\\]+)%.json$")
+if name and name ~= "Default" then
+table.insert(list, name)
+end
+end
+end
+return list
+end
+
+local function saveConfigProfile(name)
+if writefile then
+local targetPath = folderName .. "/" .. name .. ".json"
+writefile(targetPath, HttpService:JSONEncode(state))
+LogDebug("Config", "Profile saved to: " .. targetPath)
+end
+end
+
+local function loadConfigProfile(name)
+if readfile and isfile then
+local targetPath = folderName .. "/" .. name .. ".json"
+if isfile(targetPath) then
+local ok, data = pcall(function() return HttpService:JSONDecode(readfile(targetPath)) end)
+if ok and type(data) == "table" then
+for k, v in pairs(data) do
+if state[k] ~= nil then state[k] = v end
+end
+LogDebug("Config", "Profile loaded from: " .. targetPath)
+return true
+end
+end
+end
+return false
+end
+
+local function saveGlobalMetadata()
+if writefile then
+writefile(globalConfigName, HttpService:JSONEncode({
+selectedConfig = selectedConfig,
+autoloadConfig = autoloadConfig
+}))
+end
+end
+
+local function loadGlobalMetadata()
+if readfile and isfile and isfile(globalConfigName) then
+local ok, data = pcall(function() return HttpService:JSONDecode(readfile(globalConfigName)) end)
+if ok and type(data) == "table" then
+selectedConfig = data.selectedConfig or "Default"
+autoloadConfig = data.autoloadConfig or ""
+end
+end
+end
+
+loadGlobalMetadata()
+if autoloadConfig ~= "" then
+local loaded = loadConfigProfile(autoloadConfig)
+if loaded then selectedConfig = autoloadConfig end
+end
+
+local originalLighting = {
+Ambient = Lighting.Ambient,
+OutdoorAmbient = Lighting.OutdoorAmbient,
+Brightness = Lighting.Brightness,
+ClockTime = Lighting.ClockTime,
+GlobalShadows = Lighting.GlobalShadows
+}
+
+local scrollTypes = {
+["SScroll"] = true, ["AScroll"] = true, ["BScroll"] = true,
+["CScroll"] = true, ["DScroll"] = true, ["EScroll"] = true,
+["CashScroll"] = true
+}
+
+local dropTargetNames = {
+["Begin Working! - [$0]"] = true,
+["Buy Byakugan Dropper - [$2400]"] = true,
+["Buy Headband Dropper - [$300]"] = true,
+["Buy Katana Dropper - [$600]"] = true,
+["Buy Kunai Dropper - [$150]"] = true,
+["Buy MS Dropper - [$4800]"] = true,
+["Buy Rinnegan Dropper - [$13000]"] = true,
+["Buy Second Conveyor - [$200]"] = true,
+["Buy Sharingan Dropper - [$1200]"] = true,
+["Buy Shuriken Dropper - [$70]"] = true,
+["Buy Tenseigan Dropper - [$28000]"] = true,
+["Buy a Earth Chakra Infuser - [$300]"] = true,
+["Buy a Fire Chakra Infuser - [$1200]"] = true,
+["Buy a Lightning Chakra Infuser - [$2400]"] = true,
+["Buy a Water Chakra Infuser - [$600]"] = true,
+["Buy a Wind Chakra Infuser - [$4800]"] = true
+}
+
+local function Notify(title, text, icon, duration)
+WindUI:Notify({ Title = title, Content = text, Icon = icon or "info", Duration = duration or 3 })
+end
+
+local function stopVelocity(root)
+if root then
+root.AssemblyLinearVelocity = Vector3.zero
+root.AssemblyAngularVelocity = Vector3.zero
+end
+end
+
+local function tpToTarget(targetInstance, offset)
+if not targetInstance then
+Notify("Teleport Failed", "Target path does not exist dynamically.", "solar:close-circle-bold")
+return
+end
+
+local char = LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+if root then
+local cframe
+if targetInstance:IsA("Model") then
+cframe = (targetInstance.PrimaryPart and targetInstance.PrimaryPart.CFrame) or targetInstance:GetPivot()
+elseif targetInstance:IsA("BasePart") then
+cframe = targetInstance.CFrame
+end
+
+if cframe then
+stopVelocity(root)
+root.CFrame = cframe + (offset or Vector3.new(0, 3, 0))
+LogDebug("Teleport", "Jumped to " .. targetInstance.Name)
+end
+end
+end
+
+local function equipFirstInventoryItem()
+local char = LocalPlayer.Character
+local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+local backpack = LocalPlayer:FindFirstChild("Backpack")
+
+if humanoid and backpack then
+if char:FindFirstChildOfClass("Tool") then return true end
+local firstItem = backpack:FindFirstChildOfClass("Tool")
+if firstItem then
+humanoid:EquipTool(firstItem)
+return true
+end
+end
+return false
+end
+
+local function getAttackRemote()
+local char = LocalPlayer.Character
+if not char then return nil end
+local remotes = {"Attack", "Combat", "Hit"}
+
+for _, name in ipairs(remotes) do
+local r = char:FindFirstChild(name, true) or (LocalPlayer:FindFirstChild("Backpack") and LocalPlayer.Backpack:FindFirstChild(name, true)) or ReplicatedStorage:FindFirstChild(name, true)
+if r and (r:IsA("RemoteEvent") or r:IsA("UnreliableRemoteEvent")) then return r end
+end
+return nil
+end
+
+local function getTycoon(isMine)
+local kit = Workspace:FindFirstChild("Zednov's Tycoon Kit") or Workspace:FindFirstChild("Tycoon Kit", true)
+local folder = kit and (kit:FindFirstChild("Tycoons") or kit:FindFirstChild("TycoonFolder", true))
+if not folder then return nil end
+
+for _, tycoon in pairs(folder:GetChildren()) do
+local owner = tycoon:FindFirstChild("Owner")
+if isMine and owner and owner.Value == LocalPlayer then return tycoon
+elseif not isMine and owner and owner.Value ~= LocalPlayer and owner.Value ~= nil then return tycoon end
+end
+return nil
+end
+
+local function serverHop()
+Notify("Server Hop", "Finding a different cosmic server...", "solar:restart-bold")
+task.wait(0.5)
+local servers = {}
+pcall(function()
+local res = game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")
+local data = HttpService:JSONDecode(res)
+for _, server in ipairs(data.data) do
+if server.playing < server.maxPlayers and server.id ~= game.JobId then
+table.insert(servers, server.id)
+end
+end
+end)
+if #servers > 0 then
+TeleportService:TeleportToPlaceInstance(game.PlaceId, servers[math.random(1, #servers)], LocalPlayer)
+else
+Notify("Server Hop Failed", "No planetary nodes discovered.", "solar:close-circle-bold")
+end
+end
+
+local espCache = {}
+
+local function createESP(player)
+if player == LocalPlayer or espCache[player] then return end
+
+local hl = Instance.new("Highlight")
+hl.FillColor = Color3.fromRGB(0, 229, 255)
+hl.OutlineColor = Color3.fromRGB(123, 44, 191)
+hl.FillTransparency = 0.5
+hl.Enabled = false
+
+local bb = Instance.new("BillboardGui")
+bb.Size = UDim2.new(0, 200, 0, 50)
+bb.StudsOffset = Vector3.new(0, 3.5, 0)
+bb.AlwaysOnTop = true
+bb.Enabled = false
+
+local txt = Instance.new("TextLabel", bb)
+txt.Size = UDim2.new(1, 0, 1, 0)
+txt.BackgroundTransparency = 1
+txt.TextScaled = false
+txt.TextSize = 14
+txt.TextColor3 = Color3.fromRGB(0, 225, 255)
+txt.Font = Enum.Font.GothamBold
+txt.TextStrokeTransparency = 0
+txt.TextStrokeColor3 = Color3.fromRGB(11, 16, 33)
+
+espCache[player] = { Highlight = hl, Billboard = bb, TextLabel = txt }
+end
+
+local function removeESP(player)
+if espCache[player] then
+espCache[player].Highlight:Destroy()
+espCache[player].Billboard:Destroy()
+espCache[player] = nil
+end
+end
+
+Players.PlayerAdded:Connect(createESP)
+Players.PlayerRemoving:Connect(removeESP)
+for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
+
+local freecamCFrame = CFrame.new()
+local freecamSpeed = 1.6
+local freecamRotX, freecamRotY = 0, 0
+
+RunService.RenderStepped:Connect(function()
+local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+for player, data in pairs(espCache) do
+local char = player.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+if char and root and hum and hum.Health > 0 and myRoot then
+data.Highlight.Parent = char
+data.Billboard.Parent = root
+data.Highlight.Enabled = state.espPlayers
+
+if state.espNames or state.espDistance then
+data.Billboard.Enabled = true
+local textStr = ""
+if state.espNames then
+textStr = textStr .. player.DisplayName .. "\n<font color='#00E5FF'>@" .. player.Name .. "</font>"
+end
+if state.espDistance then
+local dist = math.floor((root.Position - myRoot.Position).Magnitude)
+if textStr ~= "" then textStr = textStr .. "\n" end
+textStr = textStr .. "<font color='#7B2CBF'>[" .. dist .. "m]</font>"
+end
+data.TextLabel.RichText = true
+data.TextLabel.Text = textStr
+else
+data.Billboard.Enabled = false
+end
+else
+data.Highlight.Enabled = false
+data.Billboard.Enabled = false
+end
+end
+
+if state.freeCam then
+local cam = Workspace.CurrentCamera
+if cam then
+cam.CameraType = Enum.CameraType.Scriptable
+local moveVector = Vector3.new()
+if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + cam.CFrame.LookVector end
+if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector - cam.CFrame.LookVector end
+if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector - cam.CFrame.RightVector end
+if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + cam.CFrame.RightVector end
+if UserInputService:IsKeyDown(Enum.KeyCode.E) then moveVector = moveVector + Vector3.new(0, 1, 0) end
+if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveVector = moveVector - Vector3.new(0, 1, 0) end
+
+if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+local delta = UserInputService:GetMouseDelta()
+freecamRotY = freecamRotY - delta.X * 0.003
+freecamRotX = math.clamp(freecamRotX - delta.Y * 0.003, -math.rad(89), math.rad(89))
+else
+UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+end
+
+freecamCFrame = CFrame.new(freecamCFrame.Position + moveVector * freecamSpeed) * CFrame.Angles(0, freecamRotY, 0) * CFrame.Angles(freecamRotX, 0, 0)
+cam.CFrame = freecamCFrame
+end
+end
+end)
+
+RunService.Stepped:Connect(function()
+if state.autoQuiz or state.autoScrolls then
+local char = LocalPlayer.Character
+if char then
+for _, part in ipairs(char:GetDescendants()) do
+if part:IsA("BasePart") then part.CanCollide = false end
+end
+end
+end
+end)
+
+-- Main UI Window Generation
+local Window = WindUI:CreateWindow({
+Title = "CepheusX Galaxy Engine",
+Author = "By OOFSUPERGUY",
+Icon = "solar:star-fall-minimalistic-bold",
+Theme = "Dark",
+ToggleKey = Enum.KeyCode.F,
+Folder = "TycoonHubConfigs",
+Transparent = true,
+User = {
+Enabled = true,
+Anonymous = false,
+Callback = function()
+WindUI:Notify({
+Title = "Profile",
+Content = "Hello, " .. LocalPlayer.Name .. "!",
+Icon = "user",
+Duration = 3,
+})
+end,
+},
+})
+
+Window:Tag({ Title = "GALAXY COSMOS ACTIVE", Color = Color3.fromHex("#00E5FF"), Border = true })
+
+local AutoTab = Window:Tab({ Title = "Tycoon", Icon = "solar:city-bold" })
+local FarmTab = Window:Tab({ Title = "Farming", Icon = "solar:leaf-bold" })
+local VisTab = Window:Tab({ Title = "Visuals", Icon = "solar:eye-bold" })
+local TpTab = Window:Tab({ Title = "Teleports", Icon = "solar:map-arrow-up-bold" })
+local EngineTab = Window:Tab({ Title = "Mics", Icon = "solar:settings-minimalistic-bold" })
+local SettingsTab = Window:Tab({ Title = "Settings", Icon = "solar:settings-bold" })
+
+local AutoSection = AutoTab:Section({ Title = "Automation Loops" })
+AutoSection:Toggle({ Title = "Auto-Clicker(OP)", Value = state.autoClick, Callback = function(v) state.autoClick = v end })
+AutoSection:Toggle({ Title = "Auto-Collect", Value = state.autoCollect, Callback = function(v) state.autoCollect = v end })
+AutoSection:Toggle({ Title = "Auto-Steal(OP)", Value = state.autoSteal, Callback = function(v) state.autoSteal = v end })
+AutoSection:Toggle({ Title = "Auto-Buy Upgrades", Value = state.autoBuy, Callback = function(v) state.autoBuy = v end })
+AutoSection:Toggle({ Title = "Auto-Buy Droppers", Value = state.autoBuyDrops, Callback = function(v) state.autoBuyDrops = v end })
+AutoSection:Button({ Title = "Teleport Base", Callback = function()
+local myTycoon = getTycoon(true)
+if myTycoon then
+local spawnPart = myTycoon:FindFirstChild("Essentials", true) and myTycoon.Essentials:FindFirstChild("Spawn")
+if spawnPart then tpToTarget(spawnPart, Vector3.new(0, 4, 0)) end
+end
+end })
+
+local EventSection = FarmTab:Section({ Title = "OP Farming" })
+EventSection:Toggle({ Title = "Auto-Quiz", Value = state.autoQuiz, Callback = function(v) state.autoQuiz = v end })
+EventSection:Toggle({ Title = "Auto-Scrolls Collector", Value = state.autoScrolls, Callback = function(v) state.autoScrolls = v end })
+
+local EspSection = VisTab:Section({ Title = "Player ESP" })
+EspSection:Toggle({ Title = "Highlight Players", Callback = function(v) state.espPlayers = v end })
+EspSection:Toggle({ Title = "Show Names (Display & User)", Callback = function(v) state.espNames = v end })
+EspSection:Toggle({ Title = "Show Distance", Callback = function(v) state.espDistance = v end })
+
+local TpSection = TpTab:Section({ Title = "World Navigation" })
+
+local tycoonList = {}
+local kit = Workspace:FindFirstChild("Zednov's Tycoon Kit") or Workspace:FindFirstChild("Tycoon Kit", true)
+local tFolder = kit and (kit:FindFirstChild("Tycoons") or kit:FindFirstChild("TycoonFolder", true))
+if tFolder then for _, t in pairs(tFolder:GetChildren()) do table.insert(tycoonList, t.Name) end end
+
+local selTycoon = nil
+TpSection:Dropdown({ Title = "Select Tycoon", Values = tycoonList, Callback = function(v) selTycoon = v end })
+TpSection:Button({ Title = "Teleport to Tycoon Base Floor", Callback = function()
+if selTycoon and tFolder and tFolder:FindFirstChild(selTycoon) then
+local base = tFolder[selTycoon]
+local essentials = base:FindFirstChild("Essentials", true)
+local targetNode = nil
+
+if selTycoon == "Uchika Clan" then
+targetNode = essentials and (essentials:FindFirstChild("Union") or essentials:FindFirstChild("Floor"))
+else
+targetNode = essentials and (essentials:FindFirstChild("Floor") or essentials:FindFirstChild("Union"))
+end
+
+if targetNode then tpToTarget(targetNode, Vector3.new(0, 5, 0)) end
+end
+end})
+TpSection:Space()
+
+local npcMap = {
+["Raid"] = function() return workspace["juubi bossroom"].WallCatchers.SafetyNetAt end,
+["The Paths Of Pain"] = function() return workspace.BossRooms.painsPathsMap.MissionSpirit end,
+["Akatsuke Showdown"] = function() return workspace.BossRooms.AkatsukeHideout.MissionSpirit end,
+["Kaguyai"] = function() return workspace.BossRooms.KaguyaiSTATUE.Head end,
+["Nadara"] = function() return workspace.BossRooms.NadaraSTATUE.Head end,
+["Juubito"] = function() return workspace.BossRooms.JuubitoSTATUE.Head end,
+["Pain"] = function() return workspace.BossRooms.PainSTATUE.Head end,
+["Oroshimaro"] = function() return workspace.BossRooms.OroshimaroSTATUE.Head end,
+["Mizouki"] = function() return workspace.BossRooms.MizoukiSTATUE.Head end,
+["Sayu (QuizTeleporter)"] = function() return workspace.TimedEvent_Quiz.SayuTP.Head end,
+["Story Mode Person"] = function() return workspace.StoryModePerson.Head end,
+["Lucky Frog Person"] = function() return workspace.LuckyFrogPerson.Head end,
+["Secret Boss"] = function() return workspace.kamuiDimension.ClownjasonSTATUE.Head end,
+["Secret Travel Ninja"] = function() return workspace.kamuiDimension.TravelNinja.Head end,
+["Shop"] = function() return workspace.Shop.SafeZone end,
+["Map"] = function() return workspace.Map.SafetyNetAt end
+}
+local npcKeys = {}
+for k, _ in pairs(npcMap) do table.insert(npcKeys, k) end
+
+local selNPC = nil
+TpSection:Dropdown({ Title = "Select NPC", Values = npcKeys, Callback = function(v) selNPC = v end })
+TpSection:Button({ Title = "Teleport to NPC", Callback = function()
+if selNPC and npcMap[selNPC] then tpToTarget(npcMap[selNPC]()) end
+end})
+TpSection:Space()
+
+local bossMap = {
+["Raid"] = function() return workspace["juubi bossroom"].WallCatchers.SafetyNetAt end,
+["The Paths Of Pain"] = function() return workspace.BossRooms.painsPathsMap.WallCatchers.SafetyNetAt end,
+["Akatsuke Showdown"] = function() return workspace.BossRooms.AkatsukeHideout.WallCatchers.SafetyNetAt end,
+["Kaguyai"] = function() return workspace.BossRooms["kaguya boss"].WallCatchers.SafetyNetAt end,
+["Nadara"] = function() return workspace.BossRooms["madara boss "].WallCatchers.SafetyNetAt end,
+["Juubito"] = function() return workspace.BossRooms["obito boss "].WallCatchers.SafetyNetAt end,
+["Pain"] = function() return workspace.BossRooms["pain boss map"].WallCatchers.SafetyNetAt end,
+["Oroshimaro"] = function() return workspace.BossRooms["new o boss"].WallCatchers.SafetyNetAt end,
+["Mizouki"] = function() return workspace.BossRooms["mizuki boss "].WallCatchers.SafetyNetAt end,
+["Sayu (QuizTeleporter)"] = function() return workspace.TimedEvent_Quiz.SayuTP.Head end,
+["Story Mode Person"] = function() return workspace.StoryModePerson.Head end,
+["Lucky Frog Person"] = function() return workspace.LuckyFrogPerson.Head end,
+["Secret Boss"] = function() return workspace.kamuiDimension.ToClownjasonSafety end,
+["Secret Travel Ninja"] = function() return workspace.kamuiDimension.TravelNinja.Head end,
+["Shop"] = function() return workspace.Shop.SafeZone end,
+["Map"] = function() return workspace.Map.SafetyNetAt end
+}
+local bossKeys = {}
+for k, _ in pairs(bossMap) do table.insert(bossKeys, k) end
+
+local selBoss = nil
+TpSection:Dropdown({ Title = "Select Boss Room", Values = bossKeys, Callback = function(v) selBoss = v end })
+TpSection:Button({ Title = "Teleport to Boss", Callback = function()
+if selBoss and bossMap[selBoss] then tpToTarget(bossMap[selBoss]()) end
+end})
+TpSection:Space()
+
+local mapData = {
+["Obito Boss Safety Net"] = function() return workspace.BossRooms["obito boss "].WallCatchers.SafetyNetAt end,
+["Pains Paths Safety Net"] = function() return workspace.BossRooms.painsPathsMap.WallCatchers.SafetyNetAt end,
+["Global Map Safety Net"] = function() return workspace.Map.SafetyNetAt end,
+["Juubi Bossroom Safety Net"] = function() return workspace["juubi bossroom"].WallCatchers.SafetyNetAt end,
+["Kamui Clown Jason Safety"] = function() return workspace.kamuiDimension.ToClownjasonSafety end,
+["Teleporters At Juubi"] = function() return workspace.Teleporters.AtJuubi end,
+["Quiz Map TP Part"] = function() return workspace.QuizMap.TPPart end
+}
+local mapKeys = {}
+for k, _ in pairs(mapData) do table.insert(mapKeys, k) end
+
+local selMap = nil
+TpSection:Dropdown({ Title = "MapTeleport", Values = mapKeys, Callback = function(v) selMap = v end })
+TpSection:Button({ Title = "Teleport to Map Destination", Callback = function()
+if selMap and mapData[selMap] then tpToTarget(mapData[selMap]()) end
+end})
+
+local UtilSection = EngineTab:Section({ Title = "Performance & Client Adjustments" })
+UtilSection:Toggle({ Title = "Anti-AFK Core Engine", Callback = function(v) state.antiAfk = v end })
+UtilSection:Toggle({ Title = "No Render (Black Screen Core)", Callback = function(v) state.noRender = v end })
+UtilSection:Toggle({ Title = "Fullbright Mode", Callback = function(v)
+state.fullBright = v
+if not v then
+Lighting.Ambient = originalLighting.Ambient
+Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+Lighting.Brightness = originalLighting.Brightness
+end
+end })
+UtilSection:Toggle({ Title = "Noclip Camera", Callback = function(v)
+state.noclipCam = v
+if not v then
+LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+end
+end })
+UtilSection:Toggle({ Title = "Freecam", Callback = function(v)
+state.freeCam = v
+if v then
+local cam = Workspace.CurrentCamera
+if cam then
+freecamCFrame = cam.CFrame
+freecamRotX = 0
+freecamRotY = 0
+end
+else
+local cam = Workspace.CurrentCamera
+if cam then
+cam.CameraType = Enum.CameraType.Custom
+UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+end
+end
+end })
+
+UtilSection:Toggle({ Title = "Instant Kill Loop", Value = state.instantKill, Callback = function(v) state.instantKill = v end })
+UtilSection:Dropdown({
+Title = "Instant Kill Target Option",
+Values = {"Ice Parts", "Parts Named 'Part'"},
+Value = state.instantKillTarget,
+Callback = function(v)
+state.instantKillTarget = v
+LogDebug("InstantKill", "Target configuration updated to: " .. v)
+end
+})
+
+UtilSection:Button({ Title = "Boost FPS (Nebula Clear)", Callback = function()
+for _, obj in ipairs(Workspace:GetDescendants()) do
+if obj:IsA("PostProcessEffect") or obj:IsA("BloomEffect") or obj:IsA("BlurEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("SunRaysEffect") then
+obj:Destroy()
+elseif obj:IsA("Decal") or obj:IsA("Texture") then
+obj:Destroy()
+end
+end
+settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+Notify("FPS Boost", "Graphics pipeline cleared successfully.", "solar:bolt-bold")
+end })
+
+UtilSection:Button({ Title = "Force Server Hop", Callback = serverHop })
+
+UtilSection:Button({ Title = "Set Max Zoom Distance (999999)", Callback = function()
+if LocalPlayer.className == "Player" then
+LocalPlayer.CameraMaxZoomDistance = 999999
+Notify("Max Zoom Enabled", "Maximum distance set to 999,999 studs.", "solar:magnifier-zoom-in-bold")
+end
+end })
+
+local EnvSection = EngineTab:Section({ Title = "Time Progression Modifiers" })
+EnvSection:Button({ Title = "Set Day Time", Callback = function() Lighting.ClockTime = 14 end })
+EnvSection:Button({ Title = "Set Night Time", Callback = function() Lighting.ClockTime = 0 end })
+
+local SysSection = SettingsTab:Section({ Title = "System Logging" })
+SysSection:Toggle({ Title = "Console Debug Logging", Value = true, Callback = function(v) state.debugMode = v end })
+SysSection:Button({ Title = "Rejoin Server", Color = Color3.fromHex("#FF2A54"), Callback = function()
+TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+end})
+
+local ConfigSection = SettingsTab:Section({ Title = "Profile Profile Configuration System" })
+
+local typedProfileName = "CustomConfig"
+ConfigSection:Input({ Title = "Profile Name Input", Placeholder = "Type Profile Name Here", Callback = function(text)
+typedProfileName = text
+end })
+
+local configDropdownElement
+local function refreshDropdownOptions()
+if configDropdownElement then
+configDropdownElement:SetValues(getAvailableConfigs())
+end
+end
+
+configDropdownElement = ConfigSection:Dropdown({
+Title = "Select Profile Action target",
+Values = getAvailableConfigs(),
+Callback = function(v)
+selectedConfig = v
+saveGlobalMetadata()
+end
+})
+
+ConfigSection:Button({ Title = "Create & Save Custom Profile Name", Callback = function()
+if typedProfileName ~= "" then
+saveConfigProfile(typedProfileName)
+selectedConfig = typedProfileName
+saveGlobalMetadata()
+refreshDropdownOptions()
+Notify("Config Saved", "Saved profile state as: " .. typedProfileName, "solar:diskette-bold", 3)
+end
+end })
+
+ConfigSection:Button({ Title = "Save Currently Selected Profile", Callback = function()
+saveConfigProfile(selectedConfig)
+Notify("Profile Overwritten", "Updated saved state inside: " .. selectedConfig, "solar:check-circle-bold", 3)
+end })
+
+ConfigSection:Button({ Title = "Load Profile Data Selection", Callback = function()
+local checked = loadConfigProfile(selectedConfig)
+if checked then
+Notify("Framework Loaded", "Loaded profile runtime configuration: " .. selectedConfig, "solar:import-bold", 3)
+else
+Notify("Load Failed", "Profile context path file is empty.", "solar:close-circle-bold", 3)
+end
+end })
+
+local initialAutoloadToggle = (autoloadConfig == selectedConfig and autoloadConfig ~= "")
+ConfigSection:Toggle({
+Title = "Autoload Selected Profile On Execution",
+Value = initialAutoloadToggle,
+Callback = function(stateToggle)
+if stateToggle then
+autoloadConfig = selectedConfig
+else
+autoloadConfig = ""
+end
+saveGlobalMetadata()
+LogDebug("Metadata", "Autoload profile designated: " .. autoloadConfig)
+end
+})
+
+LocalPlayer.Idled:Connect(function()
+if state.antiAfk then
+local VirtualUser = cloneref(game:GetService("VirtualUser"))
+VirtualUser:CaptureController()
+VirtualUser:ClickButton2(Vector2.new(0, 0))
+LogDebug("System", "Anti-AFK pulse triggered.")
+end
+end)
+
+RunService.RenderStepped:Connect(function()
+if state.fullBright then
+Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+Lighting.Brightness = 2
+end
+if state.noRender then
+RunService:Set3dRenderingEnabled(false)
+else
+RunService:Set3dRenderingEnabled(true)
+end
+if state.noclipCam then
+LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+end
+end)
+
+-- Instant Kill Loop Logic (Evaluates reference image_45b79b.png properties)
+task.spawn(function()
+while task.wait(0.03) do
+if state.instantKill then
+local char = LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+
+if root then
+local forwardCFrame = root.CFrame * CFrame.new(0, 0, -4)
+
+for _, obj in ipairs(Workspace:GetDescendants()) do
+if obj:IsA("BasePart") then
+local isMatch = false
+
+if state.instantKillTarget == "Ice Parts" then
+if obj.Color == Color3.fromRGB(159, 243, 233) and
+obj.Material == Enum.Material.Ice and
+obj.CastShadow == true and
+obj.Transparency == 0 and
+obj.Reflectance == 0 and
+(obj.BrickColor == BrickColor.new("Pastel blue-green") or obj.BrickColor.Name == "Pastel blue-green") then
+isMatch = true
+end
+elseif state.instantKillTarget == "Parts Named 'Part'" then
+if obj.Name == "Part" then
+isMatch = true
+end
+end
+
+if isMatch then
+pcall(function()
+obj.CFrame = forwardCFrame
+obj.AssemblyLinearVelocity = Vector3.zero
+obj.AssemblyAngularVelocity = Vector3.zero
+end)
+end
+end
+end
+end
+end
+end
+end)
+
+task.spawn(function()
+while task.wait() do
+local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if not root then continue end
+
+local myTycoon = getTycoon(true)
+
+if state.autoClick and myTycoon then
+local clicker = myTycoon:FindFirstChild("PurchasedObjects", true) and myTycoon.PurchasedObjects:FindFirstChild("Clicker", true)
+local prompt = clicker and clicker:FindFirstChildOfClass("ProximityPrompt")
+if prompt then fireproximityprompt(prompt) end
+end
+
+if state.autoCollect and myTycoon then
+local giver = myTycoon:FindFirstChild("Essentials", true) and myTycoon.Essentials:FindFirstChild("Giver")
+if giver then
+firetouchinterest(root, giver, 0)
+firetouchinterest(root, giver, 1)
+end
+end
+
+if state.autoBuy and myTycoon then
+local buttons = myTycoon:FindFirstChild("Buttons")
+if buttons then
+for _, btn in pairs(buttons:GetChildren()) do
+if not dropTargetNames[btn.Name] then
+local head = btn:FindFirstChild("Head")
+if head then
+firetouchinterest(root, head, 0)
+firetouchinterest(root, head, 1)
+end
+end
+end
+end
+end
+
+if state.autoBuyDrops and myTycoon then
+local buttons = myTycoon:FindFirstChild("Buttons")
+if buttons then
+for _, btn in pairs(buttons:GetChildren()) do
+if dropTargetNames[btn.Name] then
+local head = btn:FindFirstChild("Head")
+if head then
+firetouchinterest(root, head, 0)
+firetouchinterest(root, head, 1)
+end
+end
+end
+end
+end
+
+if state.autoSteal then
+local folder = Workspace:FindFirstChild("Zednov's Tycoon Kit") and Workspace["Zednov's Tycoon Kit"]:FindFirstChild("Tycoons")
+if folder then
+for _, t in pairs(folder:GetChildren()) do
+local owner = t:FindFirstChild("Owner")
+if owner and owner.Value ~= LocalPlayer and owner.Value ~= nil then
+local giver = t:FindFirstChild("Essentials", true) and t.Essentials:FindFirstChild("Giver")
+if giver then
+firetouchinterest(root, giver, 0)
+firetouchinterest(root, giver, 1)
+end
+end
+end
+end
+end
+end
+end)
+
+-- COMPATIBILITY ENGINE: Dedicated Auto-Scroll Collector Thread
+task.spawn(function()
+while task.wait() do
+if state.autoScrolls then
+local char = LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+if root then
+for _, child in ipairs(Workspace:GetChildren()) do
+if scrollTypes[child.Name] then
+local partTarget = child:IsA("BasePart") and child or child:FindFirstChildOfClass("BasePart") or child.PrimaryPart
+if partTarget then
+local prompt = child:FindFirstChild("PP") or child:FindFirstChildOfClass("ProximityPrompt") or partTarget:FindFirstChildOfClass("ProximityPrompt")
+if prompt then
+pcall(function()
+stopVelocity(root)
+root.CFrame = partTarget.CFrame * CFrame.new(0, 1.5, 0)
+prompt.HoldDuration = 0
+prompt.MaxActivationDistance = math.huge
+fireproximityprompt(prompt)
+task.wait(0.02) -- Micro-delay to avoid network drops while clearing instantly
+end)
+end
+end
+end
+end
+end
+end
+end
+end)
+
+-- COMPATIBILITY ENGINE: Dedicated Auto-Quiz Thread (Yields position control if a scroll drops)
+task.spawn(function()
+while task.wait() do
+if state.autoQuiz then
+-- Scan to see if there are any active scrolls competing on the map right now
+local activeScrollsOnMap = false
+if state.autoScrolls then
+for _, child in ipairs(Workspace:GetChildren()) do
+if scrollTypes[child.Name] then
+activeScrollsOnMap = true
+break
+end
+end
+end
+
+-- Only claim position for Quiz if no active scrolls are being farmed to maintain compatibility
+if not activeScrollsOnMap then
+local char = LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+local cam = Workspace.CurrentCamera
+
+if root and cam then
+local quiz = Workspace:FindFirstChild("TimedEvent_Quiz") or Workspace:FindFirstChild("Quiz", true)
+local attackRemote = getAttackRemote()
+
+if quiz then
+local latest, correctTarget
+for _, obj in ipairs(quiz:GetChildren()) do
+if obj:IsA("Model") and obj:FindFirstChild("AnswerTarget") then latest = obj end
+end
+
+if latest then
+for _, obj in ipairs(latest:GetChildren()) do
+if obj.Name == "AnswerTarget" and obj:FindFirstChild("Head") and obj.Head:FindFirstChild("Correct") then
+correctTarget = obj; break
+end
+end
+
+if correctTarget and correctTarget:FindFirstChild("HumanoidRootPart") then
+local targetPos = correctTarget.HumanoidRootPart.Position
+stopVelocity(root)
+equipFirstInventoryItem()
+
+local underneathPos = targetPos - Vector3.new(0, 7, 0)
+root.CFrame = CFrame.lookAt(underneathPos, targetPos)
+cam.CFrame = CFrame.lookAt(cam.CFrame.Position, targetPos)
+
+if attackRemote then
+attackRemote:FireServer()
+end
+end
+end
+end
+end
+end
+end
+end
+end)
+
+Workspace.ChildAdded:Connect(function(child)
+if state.autoScrolls and scrollTypes[child.Name] then
+local partTarget = child:IsA("BasePart") and child or child:FindFirstChildOfClass("BasePart") or child.PrimaryPart
+local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if partTarget and root then
+local prompt = child:FindFirstChild("PP") or child:FindFirstChildOfClass("ProximityPrompt") or partTarget:FindFirstChildOfClass("ProximityPrompt")
+if prompt then
+pcall(function()
+stopVelocity(root)
+root.CFrame = partTarget.CFrame * CFrame.new(0, 1.5, 0)
+prompt.HoldDuration = 0
+prompt.MaxActivationDistance = math.huge
+fireproximityprompt(prompt)
+end)
+end
+end
+end
+end)
+
+Notify("CepheusXNinjaTycoon Loaded", "you are the niggest nigger ever Toggle [F]", "solar:check-circle-bold", 5)
